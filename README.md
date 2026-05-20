@@ -14,21 +14,28 @@
 ```bash
 # 1) 환경 변수 파일 준비
 cp .env.example .env
-# 필요시 .env 편집 (포트/비밀번호 등)
 
-# 2) 컨테이너 기동 (백그라운드)
+# 2) .env 편집 — 아래 3개 값은 필수 (비워두면 기동 실패):
+#    - GITLAB_IMAGE_TAG       예: 17.8.2-ce.0 (고객 EKS Helm appVersion에 맞춰 핀)
+#    - GITLAB_EXTERNAL_URL    예: http://devserver.example.local:48080
+#    - GITLAB_ROOT_PASSWORD   12자 이상 + 특수문자
+vi .env
+
+# 3) 변수 누락 사전 검증 (interpolation 에러 즉시 확인)
+docker compose config -q
+
+# 4) 컨테이너 기동 (백그라운드)
 docker compose up -d
 
-# 3) 초기화 진행 상태 확인 — healthy 까지 보통 3~5분 소요
+# 5) 초기화 진행 상태 확인 — healthy 까지 보통 3~5분 소요
 docker compose ps
 docker compose logs -f gitlab
 ```
 
-`STATUS`가 `Up (healthy)`이 되면 브라우저에서 접속:
+`STATUS`가 `Up (healthy)`이 되면 브라우저에서 `GITLAB_EXTERNAL_URL` 주소로 접속:
 
-- URL: <http://localhost:48080>
 - ID: `root`
-- PW: `.env`의 `GITLAB_ROOT_PASSWORD` (기본값 `ChangeMe!12345`)
+- PW: `.env`의 `GITLAB_ROOT_PASSWORD`
 
 > 초기 비밀번호가 적용되지 않는 경우 아래 "초기 비밀번호 재설정" 절을 참고하세요.
 
