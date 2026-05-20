@@ -11,6 +11,13 @@ services:
         # 컨테이너 내부에서는 강제로 80/443 listen 으로 고정하고, Docker 포트 매핑이 변환을 담당
         nginx['listen_port'] = 80
         nginx['listen_https'] = false
+        # Nginx Proxy Manager에서 TLS 종단 → 컨테이너로 HTTP 포워딩되는 구성.
+        # 클라이언트가 실제로는 HTTPS로 접근 중임을 GitLab Rails/Workhorse에 알려
+        # secure cookie, asset URL, OAuth redirect가 https 스킴으로 생성되게 함.
+        nginx['proxy_set_headers'] = {
+          "X-Forwarded-Proto" => "https",
+          "X-Forwarded-Ssl" => "on"
+        }
         gitlab_rails['gitlab_shell_ssh_port'] = ${GITLAB_SSH_PORT:-48022}
         gitlab_rails['initial_root_password'] = '${GITLAB_ROOT_PASSWORD:?GITLAB_ROOT_PASSWORD must be set in .env (사내 개발서버라도 기본값 사용 금지)}'
         # 테스트 환경용 최소 리소스 설정
