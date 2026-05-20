@@ -1,0 +1,38 @@
+services:
+  gitlab:
+    image: gitlab/gitlab-ce:latest
+    container_name: custom-gitlab
+    restart: unless-stopped
+    hostname: ${GITLAB_HOSTNAME:-gitlab.local}
+    environment:
+      GITLAB_OMNIBUS_CONFIG: |
+        external_url '${GITLAB_EXTERNAL_URL:-http://localhost:48080}'
+        # external_url에 비표준 포트가 들어가면 nginx도 그 포트로 listen 하려 함 →
+        # 컨테이너 내부에서는 강제로 80/443 listen 으로 고정하고, Docker 포트 매핑이 변환을 담당
+        nginx['listen_port'] = 80
+        nginx['listen_https'] = false
+        gitlab_rails['gitlab_shell_ssh_port'] = ${GITLAB_SSH_PORT:-48022}
+        gitlab_rails['initial_root_password'] = '${GITLAB_ROOT_PASSWORD:-ChangeMe!12345}'
+        # 테스트 환경용 최소 리소스 설정
+        puma['worker_processes'] = 2
+        sidekiq['max_concurrency'] = 10
+        prometheus_monitoring['enable'] = false
+        gitlab_rails['gitlab_default_can_create_group'] = true
+        gitlab_rails['gitlab_username_changing_enabled'] = true
+        # 가입 비활성화(테스트용 단일 인스턴스)
+        gitlab_rails['gitlab_signup_enabled'] = false
+    ports:
+      - "${GITLAB_HTTP_PORT:-48080}:80"
+      - "${GITLAB_HTTPS_PORT:-48443}:443"
+      - "${GITLAB_SSH_PORT:-48022}:22"
+    volumes:
+      - ./data/config:/etc/gitlab
+      - ./data/logs:/var/log/gitlab
+      - ./data/data:/var/opt/gitlab
+    shm_size: "256m"
+    healthcheck:
+      test: ["CMD", "/opt/gitlab/bin/gitlab-healthcheck", "--fail", "--max-time", "10"]
+      interval: 60s
+      timeout: 30s
+      retries: 5
+      start_period: 600s
