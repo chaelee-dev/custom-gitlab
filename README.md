@@ -49,12 +49,15 @@ docker compose logs -f gitlab
 
 | 변수 | 기본값 | 설명 |
 |------|--------|------|
-| `GITLAB_HOSTNAME` | `gitlab.local` | 컨테이너 호스트네임 |
-| `GITLAB_EXTERNAL_URL` | `http://localhost:48080` | 외부에서 접근할 URL (포트 포함) |
+| `GITLAB_IMAGE_TAG` | *(필수, 기본값 없음)* | GitLab CE 이미지 태그. `latest` 금지 — 고객 EKS Helm appVersion과 동일 태그로 핀 (예: `17.8.2-ce.0`) |
+| `GITLAB_HOSTNAME` | `gitlab.local` | 컨테이너 호스트네임 (사용자 접근 주소 아님) |
+| `GITLAB_EXTERNAL_URL` | `http://localhost:48080` | 외부에서 접근할 URL (포트 포함). **사내 개발서버 배포 시 실제 호스트로 변경 필수** |
 | `GITLAB_HTTP_PORT` | `48080` | 호스트 HTTP 포트 (충돌 회피용 48xxx 대역) |
 | `GITLAB_HTTPS_PORT` | `48443` | 호스트 HTTPS 포트 |
 | `GITLAB_SSH_PORT` | `48022` | 호스트 SSH 포트 (호스트 22 충돌 회피용) |
-| `GITLAB_ROOT_PASSWORD` | `ChangeMe!12345` | root 초기 비밀번호 (최초 1회) |
+| `GITLAB_ROOT_PASSWORD` | *(필수, 기본값 없음)* | root 초기 비밀번호 (최초 1회). 12자 이상 + 특수문자 |
+
+> `GITLAB_IMAGE_TAG`와 `GITLAB_ROOT_PASSWORD`는 비워둘 경우 `docker compose up`이 실패합니다 (의도된 동작 — 약한 기본값 사용을 차단).
 
 ## 에이전트 테스트용 사용 가이드
 
