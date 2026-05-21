@@ -29,8 +29,8 @@ services:
         # 가입 비활성화(테스트용 단일 인스턴스)
         gitlab_rails['gitlab_signup_enabled'] = false
     ports:
+      # HTTPS(443)는 NPM에서 종단 처리하므로 컨테이너 측 노출 불필요
       - "${GITLAB_HTTP_PORT:-48080}:80"
-      - "${GITLAB_HTTPS_PORT:-48443}:443"
       - "${GITLAB_SSH_PORT:-48022}:22"
     volumes:
       - ./data/config:/etc/gitlab
