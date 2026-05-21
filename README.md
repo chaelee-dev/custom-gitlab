@@ -109,12 +109,23 @@ git clone http://root:<YOUR_TOKEN>@gitlab.local/<group>/<project>.git
 
 ## 운영 명령
 
+### 매니페스트 변경 반영 (재배포)
+
+ConfigMap / Ingress / Kustomization 등 `k8s/` 매니페스트를 수정한 뒤에는 `apply` 만으로는 부족합니다 — `envFrom: configMapRef`로 주입한 환경변수는 Pod 시작 시점에 컨테이너에 박혀, ConfigMap이 갱신돼도 실행 중인 Pod에는 반영되지 않습니다. 또한 GitLab은 entrypoint에서 `GITLAB_OMNIBUS_CONFIG` → `/etc/gitlab/gitlab.rb` → `gitlab-ctl reconfigure` 순으로 적용하므로 Pod 재시작이 필요합니다.
+
+```bash
+kubectl apply -k k8s/
+kubectl -n custom-gitlab rollout restart statefulset/gitlab
+kubectl -n custom-gitlab rollout status statefulset/gitlab
+```
+
+새 Pod이 `Ready`가 될 때까지 보통 3~10분 소요됩니다. 진행 상황은 `kubectl -n custom-gitlab logs -f statefulset/gitlab` 로 확인.
+
+### 그 외 명령
+
 ```bash
 # 컨테이너 셸 진입
 kubectl -n custom-gitlab exec -it statefulset/gitlab -- bash
-
-# ConfigMap 수정 후 반영 (Pod 재시작이 가장 확실)
-kubectl -n custom-gitlab rollout restart statefulset/gitlab
 
 # 비밀번호 재설정
 kubectl -n custom-gitlab exec -it statefulset/gitlab -- \
