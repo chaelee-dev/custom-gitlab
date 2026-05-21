@@ -1,0 +1,102 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: gitlab
+  namespace: custom-gitlab
+spec:
+  serviceName: gitlab-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gitlab
+  template:
+    metadata:
+      labels:
+        app: gitlab
+    spec:
+      # GitLab 정상 종료에 필요한 시간 확보
+      terminationGracePeriodSeconds: 300
+      containers:
+        - name: gitlab
+          # 태그는 kustomization.yaml의 images 변환으로 핀
+          image: gitlab/gitlab-ce
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: gitlab-config
+            - secretRef:
+                name: gitlab-secret
+          ports:
+            - name: http
+              containerPort: 80
+          volumeMounts:
+            - name: config
+              mountPath: /etc/gitlab
+            - name: logs
+              mountPath: /var/log/gitlab
+            - name: data
+              mountPath: /var/opt/gitlab
+            - name: shm
+              mountPath: /dev/shm
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "4Gi"
+            limits:
+              memory: "6Gi"
+          # 최초 기동은 3~10분 소요 — startupProbe로 grace period 확보
+          startupProbe:
+            exec:
+              command:
+                - /opt/gitlab/bin/gitlab-healthcheck
+                - --fail
+                - --max-time
+                - "10"
+            periodSeconds: 30
+            failureThreshold: 40   # 30s * 40 = 최대 20분
+          livenessProbe:
+            exec:
+              command:
+                - /opt/gitlab/bin/gitlab-healthcheck
+                - --fail
+                - --max-time
+                - "10"
+            periodSeconds: 60
+            timeoutSeconds: 30
+            failureThreshold: 5
+          readinessProbe:
+            exec:
+              command:
+                - /opt/gitlab/bin/gitlab-healthcheck
+                - --fail
+                - --max-time
+                - "10"
+            periodSeconds: 30
+            failureThreshold: 3
+      volumes:
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 256Mi
+  volumeClaimTemplates:
+    - metadata:
+        name: config
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi
+    - metadata:
+        name: logs
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 5Gi
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 30Gi

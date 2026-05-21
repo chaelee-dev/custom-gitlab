@@ -1,70 +1,66 @@
 # custom-gitlab
 
-다른 에이전트의 GitLab 환경 테스트를 위해 Docker로 임시 GitLab CE(Community Edition)를 띄우는 프로젝트입니다.
+다른 에이전트의 GitLab 환경 테스트를 위해 사내 K8s 개발 클러스터에 임시 GitLab CE(Community Edition) 인스턴스를 띄우는 매니페스트입니다.
+
+> 운영 GitLab은 공식 Helm Chart 사용을 권장합니다. 이 매니페스트는 Omnibus 단일 Pod 기반의 "테스트용 단일 인스턴스" 컨셉이며, 고객 EKS의 Helm 기반 배포와는 별개입니다.
 
 ## 사전 요구사항
 
-- Docker 20.10+ / Docker Compose v2
-- 메모리 **최소 4GB**, 권장 6GB 이상 할당 가능한 환경
-- 디스크 여유 공간 10GB 이상
-- (WSL2 사용 시) `.wslconfig`에서 메모리 4GB 이상 할당 권장
+- 사내 K8s 클러스터 접근 권한 (`kubectl` 컨텍스트 설정 완료)
+- `kustomize`가 통합된 `kubectl` 1.21+
+- Ingress controller (예: `ingress-nginx`)
+- 동적 프로비저닝 가능한 기본 `StorageClass`
+- 워커 노드 가용 메모리 6GB 이상
 
 ## 빠른 시작
 
 ```bash
-# 1) 환경 변수 파일 준비
-cp .env.example .env
+# 1) 네임스페이스 생성
+kubectl apply -f k8s/namespace.yaml
 
-# 2) .env 편집 — 아래 3개 값은 필수 (비워두면 기동 실패):
-#    - GITLAB_IMAGE_TAG       예: 17.8.2-ce.0 (고객 EKS Helm appVersion에 맞춰 핀)
-#    - GITLAB_EXTERNAL_URL    예: http://devserver.example.local:48080
-#    - GITLAB_ROOT_PASSWORD   12자 이상 + 특수문자
-vi .env
+# 2) root 초기 비밀번호 Secret 생성 (매니페스트에 비밀번호 박지 않음)
+kubectl -n custom-gitlab create secret generic gitlab-secret \
+  --from-literal=GITLAB_ROOT_PASSWORD='<12자 이상 + 특수문자>'
 
-# 3) 변수 누락 사전 검증 (interpolation 에러 즉시 확인)
-docker compose config -q
+# 3) 나머지 리소스 배포
+kubectl apply -k k8s/
 
-# 4) 컨테이너 기동 (백그라운드)
-docker compose up -d
-
-# 5) 초기화 진행 상태 확인 — healthy 까지 보통 3~5분 소요
-docker compose ps
-docker compose logs -f gitlab
+# 4) 기동 확인 — Ready 1/1까지 보통 5~10분 소요
+kubectl -n custom-gitlab get pod,svc,ingress,pvc
+kubectl -n custom-gitlab logs -f statefulset/gitlab
 ```
 
-`STATUS`가 `Up (healthy)`이 되면 브라우저에서 `GITLAB_EXTERNAL_URL` 주소로 접속:
+Pod이 `Ready`가 되면 `GITLAB_EXTERNAL_URL`(기본 `http://gitlab.local`)로 접속:
 
 - ID: `root`
-- PW: `.env`의 `GITLAB_ROOT_PASSWORD`
+- PW: Secret에 넣은 `GITLAB_ROOT_PASSWORD`
 
-> 초기 비밀번호가 적용되지 않는 경우 아래 "초기 비밀번호 재설정" 절을 참고하세요.
+## 환경별 조정
+
+배포 전에 사내 클러스터 상황에 맞춰 아래 값을 수정합니다.
+
+| 위치 | 키 | 설명 |
+|---|---|---|
+| `k8s/kustomization.yaml` | `images[0].newTag` | GitLab CE 이미지 태그. `latest` 금지 — 고객 EKS Helm appVersion과 동일 태그로 핀 (예: `18.11.3-ce.0`) |
+| `k8s/configmap.yaml` | `GITLAB_EXTERNAL_URL` | 사용자 접근 URL. Ingress 호스트와 정합 — 80/443 외 포트면 URL에 포함 |
+| `k8s/ingress.yaml` | `spec.rules[0].host` | 클러스터에서 라우팅할 호스트 (`GITLAB_EXTERNAL_URL`과 정합) |
+| `k8s/ingress.yaml` | `spec.ingressClassName` | 사내 Ingress controller (`nginx` / `traefik` / `alb` 등) |
+| `k8s/ingress.yaml` | `spec.tls` (선택) | TLS 종단을 Ingress에서 처리할 경우. cert-manager 또는 미리 생성한 Secret 참조 |
+
+> Git clone/push는 HTTPS + Personal Access Token으로 수행합니다. SSH는 의도적으로 노출하지 않습니다.
 
 ## 디렉터리 구조
 
 ```
 .
-├── docker-compose.yml   # GitLab CE 서비스 정의
-├── .env.example         # 환경 변수 템플릿
-├── .env                 # 실제 환경 변수 (커밋 제외)
-└── data/                # GitLab 영속 데이터 (커밋 제외)
-    ├── config/          # /etc/gitlab     — 설정 파일
-    ├── logs/            # /var/log/gitlab — 로그
-    └── data/            # /var/opt/gitlab — 저장소/DB
+└── k8s/
+    ├── namespace.yaml       # custom-gitlab 네임스페이스
+    ├── configmap.yaml       # GITLAB_OMNIBUS_CONFIG 및 환경값
+    ├── service.yaml         # headless + ClusterIP(HTTP)
+    ├── statefulset.yaml     # Pod spec + PVC(config / logs / data)
+    ├── ingress.yaml         # 호스트 라우팅
+    └── kustomization.yaml   # 이미지 태그 핀 + 리소스 묶음
 ```
-
-## 환경 변수
-
-| 변수 | 기본값 | 설명 |
-|------|--------|------|
-| `GITLAB_IMAGE_TAG` | *(필수, 기본값 없음)* | GitLab CE 이미지 태그. `latest` 금지 — 고객 EKS Helm appVersion과 동일 태그로 핀 (예: `17.8.2-ce.0`) |
-| `GITLAB_HOSTNAME` | `gitlab.local` | 컨테이너 호스트네임 (사용자 접근 주소 아님) |
-| `GITLAB_EXTERNAL_URL` | `http://localhost:48080` | 외부에서 접근할 URL (포트 포함). **사내 개발서버 배포 시 실제 호스트로 변경 필수** |
-| `GITLAB_HTTP_PORT` | `48080` | 호스트 HTTP 포트 (충돌 회피용 48xxx 대역) |
-| `GITLAB_HTTPS_PORT` | `48443` | 호스트 HTTPS 포트 |
-| `GITLAB_SSH_PORT` | `48022` | 호스트 SSH 포트 (호스트 22 충돌 회피용) |
-| `GITLAB_ROOT_PASSWORD` | *(필수, 기본값 없음)* | root 초기 비밀번호 (최초 1회). 12자 이상 + 특수문자 |
-
-> `GITLAB_IMAGE_TAG`와 `GITLAB_ROOT_PASSWORD`는 비워둘 경우 `docker compose up`이 실패합니다 (의도된 동작 — 약한 기본값 사용을 차단).
 
 ## 에이전트 테스트용 사용 가이드
 
@@ -79,7 +75,7 @@ docker compose logs -f gitlab
 CLI 한 줄로 생성(루트 토큰):
 
 ```bash
-docker compose exec gitlab gitlab-rails runner "
+kubectl -n custom-gitlab exec -it statefulset/gitlab -- gitlab-rails runner "
 token = User.find_by_username('root').personal_access_tokens.create(
   scopes: ['api','read_repository','write_repository'],
   name: 'agent-test',
@@ -94,90 +90,57 @@ puts token.token
 ### 2. API 동작 확인
 
 ```bash
-# 버전 확인
-curl --header "PRIVATE-TOKEN: <YOUR_TOKEN>" http://localhost:48080/api/v4/version
-
-# 프로젝트 목록
-curl --header "PRIVATE-TOKEN: <YOUR_TOKEN>" http://localhost:48080/api/v4/projects
+curl --header "PRIVATE-TOKEN: <YOUR_TOKEN>" http://gitlab.local/api/v4/version
+curl --header "PRIVATE-TOKEN: <YOUR_TOKEN>" http://gitlab.local/api/v4/projects
 ```
 
-### 3. Git clone / push (HTTPS)
+### 3. Git clone / push
 
 ```bash
-git clone http://root:<YOUR_TOKEN>@localhost:48080/<group>/<project>.git
-```
-
-### 4. Git clone / push (SSH)
-
-```bash
-# SSH 키 등록 후
-git clone ssh://git@localhost:48022/<group>/<project>.git
-```
-
-`~/.ssh/config` 예시:
-
-```ssh
-Host gitlab.local
-    HostName localhost
-    Port 48022
-    User git
+git clone http://root:<YOUR_TOKEN>@gitlab.local/<group>/<project>.git
 ```
 
 ## 운영 명령
 
 ```bash
-# 시작 / 중지 / 재시작
-docker compose up -d
-docker compose stop
-docker compose restart
-
-# 로그 추적
-docker compose logs -f gitlab
-
 # 컨테이너 셸 진입
-docker compose exec gitlab bash
+kubectl -n custom-gitlab exec -it statefulset/gitlab -- bash
 
-# GitLab 설정 재적용 (omnibus 옵션 변경 시)
-docker compose exec gitlab gitlab-ctl reconfigure
+# ConfigMap 수정 후 반영 (Pod 재시작이 가장 확실)
+kubectl -n custom-gitlab rollout restart statefulset/gitlab
 
-# 서비스 상태 확인
-docker compose exec gitlab gitlab-ctl status
+# 비밀번호 재설정
+kubectl -n custom-gitlab exec -it statefulset/gitlab -- \
+  gitlab-rake "gitlab:password:reset[root]"
+
+# GitLab 서비스 상태 확인
+kubectl -n custom-gitlab exec -it statefulset/gitlab -- gitlab-ctl status
 ```
 
-### 초기 비밀번호 재설정
+## 데이터 초기화
 
 ```bash
-docker compose exec gitlab gitlab-rake "gitlab:password:reset[root]"
+kubectl delete -k k8s/
+kubectl -n custom-gitlab delete pvc -l app=gitlab
+kubectl delete namespace custom-gitlab
 ```
-
-## 데이터 초기화 (완전 삭제)
-
-테스트 후 깨끗하게 비우고 다시 시작하고 싶을 때:
-
-```bash
-docker compose down
-sudo rm -rf ./data
-docker compose up -d
-```
-
-> `./data` 디렉터리는 root 권한 파일을 포함하므로 `sudo` 필요.
 
 ## 트러블슈팅
 
-- **`STATUS: starting` 상태가 너무 오래 지속됨**
-  - 정상이며 최초 기동은 3~10분 소요. `docker compose logs -f gitlab`로 진행 상황 확인.
-- **502 Bad Gateway**
-  - 아직 초기화 중. healthcheck가 `healthy`가 될 때까지 대기.
-- **메모리 부족으로 OOM Kill**
-  - Docker Desktop / WSL2 메모리 할당을 4GB 이상으로 늘리기.
-- **포트 충돌**
-  - `.env`에서 `GITLAB_HTTP_PORT` 등을 사용 중이지 않은 포트로 변경 후 `docker compose up -d`.
-- **`external_url`과 실제 접속 포트가 다름**
-  - `GITLAB_EXTERNAL_URL`에 반드시 외부 포트를 포함해야 함 (예: `http://localhost:48080`).
-- **Git push가 403/HTTPS 에러**
+- **Pod이 `Running`인데 `Ready`가 안 됨**
+  - 정상이며 최초 기동은 3~10분 소요. `kubectl -n custom-gitlab logs -f statefulset/gitlab`로 진행 상황 확인.
+- **502 / 503**
+  - 아직 초기화 중. readiness probe가 통과할 때까지 대기.
+- **PVC `Pending`**
+  - 기본 `StorageClass`가 없거나 동적 프로비저닝이 안 되는 환경. `statefulset.yaml`의 `volumeClaimTemplates`에 `storageClassName` 명시.
+- **`OOMKilled`**
+  - StatefulSet의 `resources.limits.memory`를 노드 가용 메모리에 맞춰 상향.
+- **`external_url`과 실제 접속 호스트가 다름**
+  - `configmap.yaml`의 `GITLAB_EXTERNAL_URL`과 `ingress.yaml`의 `host`가 동일해야 함 (포트 포함).
+- **Git push가 403/인증 에러**
   - 비밀번호 대신 Personal Access Token을 사용. 2FA가 켜져있으면 비밀번호 인증 불가.
 
 ## 참고
 
-- GitLab CE Docker 공식 문서: <https://docs.gitlab.com/install/docker/>
-- 이 인스턴스는 **테스트 전용**입니다. 운영 환경에서 그대로 사용하지 마세요 (HTTPS 미설정, 약한 비밀번호 등).
+- GitLab CE 공식 문서: <https://docs.gitlab.com/>
+- 이 인스턴스는 **테스트 전용**입니다. 운영 환경에서 그대로 사용하지 마세요 (TLS 미기본 설정, 단일 Pod, 약한 비밀번호 등).

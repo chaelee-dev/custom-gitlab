@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gitlab-config
+  namespace: custom-gitlab
+data:
+  GITLAB_EXTERNAL_URL: "http://gitlab.local"
+
+  GITLAB_OMNIBUS_CONFIG: |
+    external_url ENV['GITLAB_EXTERNAL_URL']
+    # external_url에 비표준 포트가 들어가도 컨테이너 내부는 80 listen으로 고정 (Ingress가 변환 담당)
+    nginx['listen_port'] = 80
+    nginx['listen_https'] = false
+    # Ingress(또는 앞단 LB)가 TLS 종단 → 컨테이너에는 HTTP로 들어옴.
+    # 이 헤더로 GitLab이 secure cookie / asset URL / OAuth redirect를 https로 생성하도록 함.
+    nginx['proxy_set_headers'] = {
+      "X-Forwarded-Proto" => "https",
+      "X-Forwarded-Ssl" => "on"
+    }
+    gitlab_rails['initial_root_password'] = ENV['GITLAB_ROOT_PASSWORD']
+    # 테스트용 최소 리소스
+    puma['worker_processes'] = 2
+    sidekiq['max_concurrency'] = 10
+    prometheus_monitoring['enable'] = false
+    gitlab_rails['gitlab_default_can_create_group'] = true
+    gitlab_rails['gitlab_username_changing_enabled'] = true
+    gitlab_rails['gitlab_signup_enabled'] = false

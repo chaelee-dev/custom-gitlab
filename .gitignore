@@ -1,5 +1,0 @@
-# GitLab 영속 데이터 (config / logs / data)
-data/
-
-# 실제 환경 변수 파일
-.env

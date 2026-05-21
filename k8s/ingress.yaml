@@ -1,0 +1,28 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: gitlab
+  namespace: custom-gitlab
+  annotations:
+    # Git push / LFS 대용량 트래픽 대비
+    nginx.ingress.kubernetes.io/proxy-body-size: "512m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+spec:
+  ingressClassName: nginx
+  rules:
+    # host는 gitlab-config ConfigMap의 GITLAB_EXTERNAL_URL과 정합 유지
+    - host: gitlab.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: gitlab
+                port:
+                  number: 80
+  # tls:
+  #   - hosts:
+  #       - gitlab.local
+  #     secretName: gitlab-tls
