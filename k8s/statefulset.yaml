@@ -14,6 +14,13 @@ spec:
       labels:
         app: gitlab
     spec:
+      # hostPath 볼륨은 노드 로컬이므로 Pod을 특정 노드에 고정 — 환경의 노드 이름으로 수정
+      nodeName: ai-service-master
+      # 마스터 노드에 둘 경우 대비 (워커 노드면 무해)
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
       # GitLab 정상 종료에 필요한 시간 확보
       terminationGracePeriodSeconds: 300
       containers:
@@ -74,29 +81,20 @@ spec:
             periodSeconds: 30
             failureThreshold: 3
       volumes:
+        # hostPath 노드 로컬 디렉터리 — 없으면 kubelet이 자동 생성(DirectoryOrCreate)
+        - name: config
+          hostPath:
+            path: /opt/custom-gitlab/config
+            type: DirectoryOrCreate
+        - name: logs
+          hostPath:
+            path: /opt/custom-gitlab/logs
+            type: DirectoryOrCreate
+        - name: data
+          hostPath:
+            path: /opt/custom-gitlab/data
+            type: DirectoryOrCreate
         - name: shm
           emptyDir:
             medium: Memory
             sizeLimit: 256Mi
-  volumeClaimTemplates:
-    - metadata:
-        name: config
-      spec:
-        accessModes: ["ReadWriteOnce"]
-        resources:
-          requests:
-            storage: 1Gi
-    - metadata:
-        name: logs
-      spec:
-        accessModes: ["ReadWriteOnce"]
-        resources:
-          requests:
-            storage: 5Gi
-    - metadata:
-        name: data
-      spec:
-        accessModes: ["ReadWriteOnce"]
-        resources:
-          requests:
-            storage: 30Gi

@@ -9,13 +9,14 @@
 - 사내 K8s 클러스터 접근 권한 (`kubectl` 컨텍스트 설정 완료)
 - `kustomize`가 통합된 `kubectl` 1.21+
 - Ingress controller (예: `ingress-nginx`)
-- 동적 프로비저닝 가능한 기본 `StorageClass`
-- 워커 노드 가용 메모리 6GB 이상
+- 데이터를 둘 노드 1대 (영속 데이터는 그 노드의 `hostPath`에 저장 — Pod이 해당 노드에 고정됨)
+- 위 노드의 가용 메모리 6GB 이상, 디스크 여유 10GB 이상
 
 ## 빠른 시작
 
-**1) 환경에 맞게 매니페스트 값 수정** — 자세한 항목은 아래 [환경별 조정](#환경별-조정) 절 참고. 최소한 다음 두 곳은 반드시 맞춰야 합니다.
+**1) 환경에 맞게 매니페스트 값 수정** — 자세한 항목은 아래 [환경별 조정](#환경별-조정) 절 참고. 최소한 다음 세 곳은 반드시 맞춰야 합니다.
 
+- `k8s/statefulset.yaml`의 `spec.template.spec.nodeName` — 데이터를 둘 노드 이름 (`kubectl get nodes` 로 확인)
 - `k8s/configmap.yaml`의 `GITLAB_EXTERNAL_URL` — 사용자 접근 URL (예: `http://gitlab.devserver.example.local`)
 - `k8s/ingress.yaml`의 `spec.rules[0].host` — 위 URL의 호스트와 **동일해야 함** (불일치 시 redirect / asset URL이 깨짐)
 
@@ -53,6 +54,8 @@ Pod이 `Ready`가 되면 `GITLAB_EXTERNAL_URL`(기본 `http://gitlab.local`)로 
 | `k8s/ingress.yaml` | `spec.rules[0].host` | 클러스터에서 라우팅할 호스트 (`GITLAB_EXTERNAL_URL`과 정합) |
 | `k8s/ingress.yaml` | `spec.ingressClassName` | 사내 Ingress controller (`nginx` / `traefik` / `alb` 등) |
 | `k8s/ingress.yaml` | `spec.tls` (선택) | TLS 종단을 Ingress에서 처리할 경우. cert-manager 또는 미리 생성한 Secret 참조 |
+| `k8s/statefulset.yaml` | `spec.template.spec.nodeName` | hostPath 볼륨을 둘 노드 이름. `kubectl get nodes` 로 확인 후 명시 |
+| `k8s/statefulset.yaml` | `spec.template.spec.volumes[].hostPath.path` | 노드 로컬 데이터 경로 (기본 `/opt/custom-gitlab/{config,logs,data}`). 디렉터리는 kubelet이 자동 생성 |
 
 > Git clone/push는 HTTPS + Personal Access Token으로 수행합니다. SSH는 의도적으로 노출하지 않습니다.
 
@@ -64,7 +67,7 @@ Pod이 `Ready`가 되면 `GITLAB_EXTERNAL_URL`(기본 `http://gitlab.local`)로 
     ├── namespace.yaml       # custom-gitlab 네임스페이스
     ├── configmap.yaml       # GITLAB_OMNIBUS_CONFIG 및 환경값
     ├── service.yaml         # headless + ClusterIP(HTTP)
-    ├── statefulset.yaml     # Pod spec + PVC(config / logs / data)
+    ├── statefulset.yaml     # Pod spec + hostPath 볼륨(config / logs / data) + nodeName 고정
     ├── ingress.yaml         # 호스트 라우팅
     └── kustomization.yaml   # 이미지 태그 핀 + 리소스 묶음
 ```
@@ -137,7 +140,7 @@ kubectl -n custom-gitlab exec -it statefulset/gitlab -- gitlab-ctl status
 
 ## 전체 삭제 (teardown)
 
-**Pod만 잠시 내리기** — 데이터(PVC) 유지, 다시 띄우면 그대로 복귀.
+**Pod만 잠시 내리기** — 노드 디렉터리(데이터) 유지, 다시 띄우면 그대로 복귀.
 
 ```bash
 kubectl -n custom-gitlab scale statefulset/gitlab --replicas=0
@@ -145,13 +148,18 @@ kubectl -n custom-gitlab scale statefulset/gitlab --replicas=0
 kubectl -n custom-gitlab scale statefulset/gitlab --replicas=1
 ```
 
-**완전 삭제** — Pod / PVC(데이터) / Secret / Ingress 등 Namespace 안의 모든 리소스 제거.
+**K8s 리소스 삭제** — Pod / Secret / Ingress 등 Namespace 안의 모든 리소스 제거. **노드의 `hostPath` 데이터는 남습니다.**
 
 ```bash
 kubectl delete namespace custom-gitlab
 ```
 
-> Namespace 삭제는 안에 있는 PVC도 같이 제거하므로 영속 데이터가 모두 사라집니다. 데이터를 보존해야 하면 위의 일시 정지를 사용하세요.
+**데이터까지 완전 삭제** — 위 명령 후, 노드에 SSH로 접속해서 디렉터리 직접 정리.
+
+```bash
+# nodeName으로 지정한 노드에서
+sudo rm -rf /opt/custom-gitlab
+```
 
 ## 트러블슈팅
 
@@ -159,8 +167,11 @@ kubectl delete namespace custom-gitlab
   - 정상이며 최초 기동은 3~10분 소요. `kubectl -n custom-gitlab logs -f statefulset/gitlab`로 진행 상황 확인.
 - **502 / 503**
   - 아직 초기화 중. readiness probe가 통과할 때까지 대기.
-- **PVC `Pending`**
-  - 기본 `StorageClass`가 없거나 동적 프로비저닝이 안 되는 환경. `statefulset.yaml`의 `volumeClaimTemplates`에 `storageClassName` 명시.
+- **Pod `Pending` — `FailedScheduling`**
+  - `describe pod gitlab-0` Events에 원인이 보임. 흔한 케이스:
+    - `nodeName`이 실제 노드와 일치하지 않음 → `kubectl get nodes` 로 확인 후 `statefulset.yaml` 수정
+    - 마스터 노드를 지정했는데 taint 때문에 거부 → 이 매니페스트는 control-plane toleration이 포함되어 있어 보통 OK. 다른 taint(`NoSchedule`)가 있다면 toleration 추가 필요
+    - 노드 리소스 부족 → `resources.requests` 하향 또는 노드 확장
 - **`OOMKilled`**
   - StatefulSet의 `resources.limits.memory`를 노드 가용 메모리에 맞춰 상향.
 - **`external_url`과 실제 접속 호스트가 다름**
