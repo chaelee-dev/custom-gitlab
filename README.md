@@ -14,18 +14,25 @@
 
 ## 빠른 시작
 
+**1) 환경에 맞게 매니페스트 값 수정** — 자세한 항목은 아래 [환경별 조정](#환경별-조정) 절 참고. 최소한 다음 두 곳은 반드시 맞춰야 합니다.
+
+- `k8s/configmap.yaml`의 `GITLAB_EXTERNAL_URL` — 사용자 접근 URL (예: `http://gitlab.devserver.example.local`)
+- `k8s/ingress.yaml`의 `spec.rules[0].host` — 위 URL의 호스트와 **동일해야 함** (불일치 시 redirect / asset URL이 깨짐)
+
+**2) 배포**
+
 ```bash
-# 1) 네임스페이스 생성
+# 네임스페이스 생성
 kubectl apply -f k8s/namespace.yaml
 
-# 2) root 초기 비밀번호 Secret 생성 (매니페스트에 비밀번호 박지 않음)
+# root 초기 비밀번호 Secret 생성 (매니페스트에 비밀번호 박지 않음)
 kubectl -n custom-gitlab create secret generic gitlab-secret \
   --from-literal=GITLAB_ROOT_PASSWORD='<12자 이상 + 특수문자>'
 
-# 3) 나머지 리소스 배포
+# 나머지 리소스 배포
 kubectl apply -k k8s/
 
-# 4) 기동 확인 — Ready 1/1까지 보통 5~10분 소요
+# 기동 확인 — Ready 1/1까지 보통 5~10분 소요
 kubectl -n custom-gitlab get pod,svc,ingress,pvc
 kubectl -n custom-gitlab logs -f statefulset/gitlab
 ```
@@ -117,13 +124,23 @@ kubectl -n custom-gitlab exec -it statefulset/gitlab -- \
 kubectl -n custom-gitlab exec -it statefulset/gitlab -- gitlab-ctl status
 ```
 
-## 데이터 초기화
+## 전체 삭제 (teardown)
+
+**Pod만 잠시 내리기** — 데이터(PVC) 유지, 다시 띄우면 그대로 복귀.
 
 ```bash
-kubectl delete -k k8s/
-kubectl -n custom-gitlab delete pvc -l app=gitlab
+kubectl -n custom-gitlab scale statefulset/gitlab --replicas=0
+# 다시 띄우기
+kubectl -n custom-gitlab scale statefulset/gitlab --replicas=1
+```
+
+**완전 삭제** — Pod / PVC(데이터) / Secret / Ingress 등 Namespace 안의 모든 리소스 제거.
+
+```bash
 kubectl delete namespace custom-gitlab
 ```
+
+> Namespace 삭제는 안에 있는 PVC도 같이 제거하므로 영속 데이터가 모두 사라집니다. 데이터를 보존해야 하면 위의 일시 정지를 사용하세요.
 
 ## 트러블슈팅
 
