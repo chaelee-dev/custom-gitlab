@@ -4,7 +4,7 @@ metadata:
   name: gitlab-config
   namespace: custom-gitlab
 data:
-  GITLAB_EXTERNAL_URL: "http://gitlab.local"
+  GITLAB_EXTERNAL_URL: "http://dev-gitlab.cognet9.com"
 
   GITLAB_OMNIBUS_CONFIG: |
     external_url ENV['GITLAB_EXTERNAL_URL']

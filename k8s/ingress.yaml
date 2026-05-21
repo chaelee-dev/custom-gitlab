@@ -12,7 +12,7 @@ spec:
   ingressClassName: nginx
   rules:
     # host는 gitlab-config ConfigMap의 GITLAB_EXTERNAL_URL과 정합 유지
-    - host: gitlab.local
+    - host: dev-gitlab.cognet9.com
       http:
         paths:
           - path: /
@@ -24,5 +24,5 @@ spec:
                   number: 80
   # tls:
   #   - hosts:
-  #       - gitlab.local
+  #       - dev-gitlab.cognet9.com
   #     secretName: gitlab-tls
