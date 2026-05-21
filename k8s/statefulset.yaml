@@ -36,6 +36,9 @@ spec:
           ports:
             - name: http
               containerPort: 80
+              # NPM(외부 reverse proxy)이 노드 IP의 :48080으로 직접 포워딩 →
+              # 노드 :48080 → Pod :80 매핑 (단일 Pod + nodeName 고정이라 hostPort 사용 가능)
+              hostPort: 48080
           volumeMounts:
             - name: config
               mountPath: /etc/gitlab

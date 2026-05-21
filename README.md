@@ -56,6 +56,7 @@ Pod이 `Ready`가 되면 `GITLAB_EXTERNAL_URL`(기본 `http://gitlab.local`)로 
 | `k8s/ingress.yaml` | `spec.tls` (선택) | TLS 종단을 Ingress에서 처리할 경우. cert-manager 또는 미리 생성한 Secret 참조 |
 | `k8s/statefulset.yaml` | `spec.template.spec.nodeName` | hostPath 볼륨을 둘 노드 이름. `kubectl get nodes` 로 확인 후 명시 |
 | `k8s/statefulset.yaml` | `spec.template.spec.volumes[].hostPath.path` | 노드 로컬 데이터 경로 (기본 `/opt/custom-gitlab/{config,logs,data}`). 디렉터리는 kubelet이 자동 생성 |
+| `k8s/statefulset.yaml` | `containers[0].ports[0].hostPort` | 노드 외부 포트. 외부 reverse proxy(NPM 등)가 노드 IP의 이 포트로 직접 포워딩하는 경우 사용 (`GITLAB_EXTERNAL_URL`의 포트와 일치). Ingress controller로만 노출한다면 이 라인은 제거 |
 
 > Git clone/push는 HTTPS + Personal Access Token으로 수행합니다. SSH는 의도적으로 노출하지 않습니다.
 
